@@ -3,3 +3,7 @@ numpy
 pandas
 pydeck
 streamlit
+openai
+tenacity
+langchain_core
+langchain_openai
