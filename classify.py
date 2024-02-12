@@ -28,11 +28,6 @@ import streamlit as st
 
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-@retry(wait=wait_random_exponential(min=1, max=15), stop=stop_after_attempt(5),reraise=True)
-def completion_with_backoff(**kwargs):
-    return openai.chat.completions.create(**kwargs)
-
-
 
 def get_df():
     file_paths = ['data/B09PC695Q9.csv', 'data/B09N3XMZ5F.csv', 'data/B09CKF166Y.csv', 'data/B08C4KWM9T.csv', 'data/B0BYJ6ZMTS.csv']
