@@ -56,11 +56,11 @@ def get_df():
 
     # limiting to 100 in interest of time. uncomment as necessary
 
-    sony_buds_df = sony_buds_df.head(50)
-    boat_buds_df = boat_buds_df.head(50)
-    samsung_buds_df = samsung_buds_df.head(50)
-    bose_buds_df = bose_buds_df.head(50)
-    oneplus_buds_df = oneplus_buds_df.head(50)
+    sony_buds_df = sony_buds_df.head(100)
+    boat_buds_df = boat_buds_df.head(100)
+    samsung_buds_df = samsung_buds_df.head(100)
+    bose_buds_df = bose_buds_df.head(100)
+    oneplus_buds_df = oneplus_buds_df.head(100)
 
     combined_df = pd.concat([sony_buds_df,boat_buds_df, samsung_buds_df, bose_buds_df, oneplus_buds_df], ignore_index=True)
     

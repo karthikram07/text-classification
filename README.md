@@ -1,7 +1,14 @@
 # Welcome to streamlit
 
-This is the app you get when you run `streamlit hello`, extracted as its own app.
 
 Edit [ui.py](./ui.py) to customize this app to your heart's desire. ❤️
 
 Check it out on [Streamlit Community Cloud](https://st-ui-app.streamlit.app/)
+
+
+To run locally:
+
+
+1. Create a file called `secrets.toml` inside the .streamlit directory
+2. Copy `.env.example` file into `secrets.toml` and replace the values accordingly.
+3. Run `stream run ui.py`;
