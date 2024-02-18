@@ -15,38 +15,57 @@
 import numpy as np
 import pandas as pd
 import openai
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_random_exponential
-)
 from langchain_core.runnables import RunnablePassthrough
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 import streamlit as st
+from langchain.chains.combine_documents.stuff import StuffDocumentsChain
+from langchain.chains.llm import LLMChain
+from langchain.prompts import PromptTemplate
+from langchain_community.document_loaders import WebBaseLoader
+from langchain.chains.summarize import load_summarize_chain
+from langchain.text_splitter import CharacterTextSplitter
+from langchain.docstore.document import Document
 
 openai.api_key = st.secrets["OPENAI_API_KEY"]
+loader = WebBaseLoader("https://lilianweng.github.io/posts/2023-06-23-agent/")
+
+def get_brand_index_map():
+    brand_index_map = {
+        'sony': 0,
+        'boat': 1,
+        'samsung': 2,
+        'bose': 3,
+        'oneplus': 4
+    }
+    return brand_index_map
+
+
+def get_file_paths():
+    file_paths = ['data/B09PC695Q9.csv', 'data/B09N3XMZ5F.csv', 'data/B09CKF166Y.csv', 'data/B08C4KWM9T.csv', 'data/B0BYJ6ZMTS.csv']
+    return file_paths
 
 
 def get_df():
-    file_paths = ['data/B09PC695Q9.csv', 'data/B09N3XMZ5F.csv', 'data/B09CKF166Y.csv', 'data/B08C4KWM9T.csv', 'data/B0BYJ6ZMTS.csv']
+    file_paths = get_file_paths()
+    brand_index_map = get_brand_index_map()
     # read all csvs into a dataframe
 
-    sony_buds_df = pd.read_csv(file_paths[0])
+    sony_buds_df = pd.read_csv(brand_index_map['sony'])
     sony_buds_df['brand'] = 'sony'
 
-    boat_buds_df = pd.read_csv(file_paths[1])
+    boat_buds_df = pd.read_csv(brand_index_map['boat'])
     boat_buds_df['brand'] = 'boat'
 
 
-    samsung_buds_df = pd.read_csv(file_paths[2])
+    samsung_buds_df = pd.read_csv(brand_index_map['samsung'])
     samsung_buds_df['brand'] = 'samsung'
 
-    bose_buds_df = pd.read_csv(file_paths[3])
+    bose_buds_df = pd.read_csv(brand_index_map['bose'])
     bose_buds_df['brand'] = 'bose'
 
-    oneplus_buds_df = pd.read_csv(file_paths[4])
+    oneplus_buds_df = pd.read_csv(brand_index_map['oneplus'])
     oneplus_buds_df['brand'] = 'oneplus'
 
     # limiting to 100 in interest of time. uncomment as necessary
@@ -97,6 +116,36 @@ def score_reviews(reviews_df):
 
     return reviews_df
     
+
+def summarize_reviews(brand):
+    file_paths = get_file_paths()
+    brand_index_map = get_brand_index_map()
+
+    brand_file = file_paths[brand_index_map[brand]]
+    brand_df = pd.read_csv(brand_file)
+    brand_df = brand_df.head(100)
+    # extract only reviews
+    reviews = brand_df['text'].to_list()
+
+    prompt_template = """Write a concise summary of the following product reviews for the earbuds:
+
+
+                        {text}
+
+
+                        CONSCISE SUMMARY:"""
+
+    prompt = PromptTemplate(template=prompt_template, input_variables=["text"])
+
+    llm = ChatOpenAI(temperature=0, model_name="gpt-3.5-turbo-16k")
+    docs = [Document(page_content=t) for t in reviews]
+    chain = load_summarize_chain(llm, chain_type='stuff', prompt=prompt)
+    return chain.run(docs)
+
+
+
+
+
 
 
 

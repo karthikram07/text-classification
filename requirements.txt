@@ -5,5 +5,8 @@ pydeck
 streamlit
 openai
 tenacity
+langchain
 langchain_core
 langchain_openai
+tiktoken
+chromadb
