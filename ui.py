@@ -43,23 +43,23 @@ class OpenAITextClassifier():
         print('self.generate_clicked', self.generate_clicked)
 
 
-        # if not self.is_classified and not self.generate_clicked:
-        #     st.button(
-        #         label="Generate radar chart and summary using persisted data",
-        #         on_click=self.generate_radar_chart,
-        #         type="primary"
-        #     )
+        if not self.is_classified and not self.generate_clicked:
+            st.button(
+                label="Generate radar chart and summary using persisted data",
+                on_click=self.generate_radar_chart,
+                type="primary"
+            )
 
-        #     st.button(
-        #         label="Run classifier and generate radar chart and summary",
-        #         on_click=self.handle_classification
-        #     )
+            st.button(
+                label="Run classifier and generate radar chart and summary",
+                on_click=self.handle_classification
+            )
 
-        # elif self.is_classified:
-        #     st.write('Classification complete. Generating radar chart')
+        elif self.is_classified:
+            st.write('Classification complete. Generating radar chart')
 
-        # elif not self.is_classified and self.generate_clicked:
-        #     st.write('Generating radar chart and summary')
+        elif not self.is_classified and self.generate_clicked:
+            st.write('Generating radar chart and summary')
         
 
         st.write("# Generate product review summary!")

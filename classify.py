@@ -52,29 +52,29 @@ def get_df():
     brand_index_map = get_brand_index_map()
     # read all csvs into a dataframe
 
-    sony_buds_df = pd.read_csv(brand_index_map['sony'])
+    sony_buds_df = pd.read_csv(file_paths[brand_index_map['sony']])
     sony_buds_df['brand'] = 'sony'
 
-    boat_buds_df = pd.read_csv(brand_index_map['boat'])
+    boat_buds_df = pd.read_csv(file_paths[brand_index_map['boat']])
     boat_buds_df['brand'] = 'boat'
 
 
-    samsung_buds_df = pd.read_csv(brand_index_map['samsung'])
+    samsung_buds_df = pd.read_csv(file_paths[brand_index_map['samsung']])
     samsung_buds_df['brand'] = 'samsung'
 
-    bose_buds_df = pd.read_csv(brand_index_map['bose'])
+    bose_buds_df = pd.read_csv(file_paths[brand_index_map['bose']])
     bose_buds_df['brand'] = 'bose'
 
-    oneplus_buds_df = pd.read_csv(brand_index_map['oneplus'])
+    oneplus_buds_df = pd.read_csv(file_paths[brand_index_map['oneplus']])
     oneplus_buds_df['brand'] = 'oneplus'
 
     # limiting to 100 in interest of time. uncomment as necessary
 
-    sony_buds_df = sony_buds_df.head(100)
-    boat_buds_df = boat_buds_df.head(100)
-    samsung_buds_df = samsung_buds_df.head(100)
-    bose_buds_df = bose_buds_df.head(100)
-    oneplus_buds_df = oneplus_buds_df.head(100)
+    sony_buds_df = sony_buds_df.head(10)
+    boat_buds_df = boat_buds_df.head(10)
+    samsung_buds_df = samsung_buds_df.head(10)
+    bose_buds_df = bose_buds_df.head(10)
+    oneplus_buds_df = oneplus_buds_df.head(10)
 
     combined_df = pd.concat([sony_buds_df,boat_buds_df, samsung_buds_df, bose_buds_df, oneplus_buds_df], ignore_index=True)
     
@@ -83,10 +83,39 @@ def get_df():
 
     return combined_df
 
-def get_attributes():
-    attributes = ['build quality', 'price', 'comfort', 'design', 'battery life', 'sound quality']
-    return attributes
+# def get_attributes():
+#     attributes = ['build quality', 'price', 'comfort', 'design', 'battery life', 'sound quality']
+#     return attributes
     
+def get_attributes(reviews_df):
+    op_structure = "feature1, feature2"
+    prompt = ChatPromptTemplate.from_template(
+                            """
+                            Here is a product review: {review}
+                            Extract the features that the reviewer mentions in relation to the product. 
+                            For example: sound quality, price.
+                            Only provide features that are product attributes and are mentioned in the review. Do not return adjectives or other descriptive verbs. Use the following format. No additional commentary.
+                            Make sure to return only features which are present in atleast 5 different reviews.
+                            %s
+                            """ % op_structure
+                        )
+    output_parser = StrOutputParser()
+    model = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.5, max_tokens=60)
+    chain = (
+            {"review": RunnablePassthrough()} 
+            | prompt
+            | model
+            | output_parser
+    )
+    review_texts = reviews_df['text'].to_list()
+    # restrict all reviews to 12000 characters
+    review_texts = [text[:12000] for text in review_texts]
+    res = chain.batch(review_texts)
+    #  return unique attributes
+    res = list(set(res))
+    return res
+    
+
 
 def score_reviews(reviews_df):
     op_structure = "feature:score"
@@ -97,7 +126,7 @@ def score_reviews(reviews_df):
                             %s
                             Only provide a score (between 0 to 3). If the feature is not mentioned, provide a score of 0. Use the following format. No additional commentary.
                             %s
-                            """ % (', '.join(get_attributes()), op_structure)
+                            """ % (', '.join(get_attributes(reviews_df)), op_structure)
                         )
     output_parser = StrOutputParser()
     model = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.5, max_tokens=60)
