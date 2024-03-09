@@ -27,6 +27,13 @@ from langchain_community.document_loaders import WebBaseLoader
 from langchain.chains.summarize import load_summarize_chain
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.docstore.document import Document
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_random_exponential,
+    wait_fixed
+)
+
 
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 loader = WebBaseLoader("https://lilianweng.github.io/posts/2023-06-23-agent/")
@@ -48,46 +55,13 @@ def get_file_paths():
 
 
 def get_df():
-    file_paths = get_file_paths()
-    brand_index_map = get_brand_index_map()
-    # read all csvs into a dataframe
+    speaker_reviews_df = pd.read_csv('data/combined_speaker_reviews.csv')
+    return speaker_reviews_df
 
-    sony_buds_df = pd.read_csv(file_paths[brand_index_map['sony']])
-    sony_buds_df['brand'] = 'sony'
-
-    boat_buds_df = pd.read_csv(file_paths[brand_index_map['boat']])
-    boat_buds_df['brand'] = 'boat'
-
-
-    samsung_buds_df = pd.read_csv(file_paths[brand_index_map['samsung']])
-    samsung_buds_df['brand'] = 'samsung'
-
-    bose_buds_df = pd.read_csv(file_paths[brand_index_map['bose']])
-    bose_buds_df['brand'] = 'bose'
-
-    oneplus_buds_df = pd.read_csv(file_paths[brand_index_map['oneplus']])
-    oneplus_buds_df['brand'] = 'oneplus'
-
-    # limiting to 100 in interest of time. uncomment as necessary
-
-    sony_buds_df = sony_buds_df.head(10)
-    boat_buds_df = boat_buds_df.head(10)
-    samsung_buds_df = samsung_buds_df.head(10)
-    bose_buds_df = bose_buds_df.head(10)
-    oneplus_buds_df = oneplus_buds_df.head(10)
-
-    combined_df = pd.concat([sony_buds_df,boat_buds_df, samsung_buds_df, bose_buds_df, oneplus_buds_df], ignore_index=True)
-    
-
-    combined_df.to_csv('data/combined.csv', index=False)
-
-    return combined_df
-
-# def get_attributes():
-#     attributes = ['build quality', 'price', 'comfort', 'design', 'battery life', 'sound quality']
-#     return attributes
     
 def get_attributes(reviews_df):
+    return ["Build Quality", "Price", "Comfort", "Design", "Battery life", "Sound Quality"]
+
     op_structure = "feature1, feature2"
     prompt = ChatPromptTemplate.from_template(
                             """
@@ -107,7 +81,7 @@ def get_attributes(reviews_df):
             | model
             | output_parser
     )
-    review_texts = reviews_df['text'].to_list()
+    review_texts = reviews_df['reviewText'].to_list()
     # restrict all reviews to 12000 characters
     review_texts = [text[:12000] for text in review_texts]
     res = chain.batch(review_texts)
@@ -115,7 +89,9 @@ def get_attributes(reviews_df):
     res = list(set(res))
     return res
     
-
+@retry(wait=wait_random_exponential(0.15, 0.75), stop=stop_after_attempt(20),reraise=True)
+def run_with_backoff(chain, **kwargs):
+    return chain.batch(**kwargs)
 
 def score_reviews(reviews_df):
     op_structure = "feature:score"
@@ -129,17 +105,18 @@ def score_reviews(reviews_df):
                             """ % (', '.join(get_attributes(reviews_df)), op_structure)
                         )
     output_parser = StrOutputParser()
-    model = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.5, max_tokens=60)
+    model = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.5, max_tokens=30)
     chain = (
             {"review": RunnablePassthrough()} 
             | prompt
             | model
             | output_parser
     )
-    review_texts = reviews_df['text'].to_list()
-    # restrict all reviews to 12000 characters
+    review_texts = reviews_df['reviewText'].to_list()
+    # make sure all reviews are strings
+    review_texts = [str(text) for text in review_texts]
     review_texts = [text[:12000] for text in review_texts]
-    res = chain.batch(review_texts)
+    res = run_with_backoff(chain, inputs = review_texts, config={"max_concurrency":5})
     for i, row in reviews_df.iterrows():
         reviews_df.at[i, 'scores'] = res[i]
 
