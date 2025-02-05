@@ -6,7 +6,7 @@ import streamlit as st
 from tenacity import retry, stop_after_attempt, wait_random_exponential, wait_random
 
 # LangChain imports (using PromptTemplate only)
-from langchain.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate
 from langchain_text_splitters import RecursiveJsonSplitter
 from langchain_openai import ChatOpenAI
 from langchain_core.runnables import RunnablePassthrough
