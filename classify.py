@@ -5,8 +5,8 @@ from collections import Counter
 import streamlit as st
 from tenacity import retry, stop_after_attempt, wait_random_exponential, wait_random
 
-# LangChain imports (using PromptTemplate only)
-from langchain_core.prompts import PromptTemplate
+# LangChain imports (using ChatPromptTemplate only)
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_text_splitters import RecursiveJsonSplitter
 from langchain_openai import ChatOpenAI
 from langchain_core.runnables import RunnablePassthrough
@@ -17,7 +17,7 @@ import plotly.graph_objects as go
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 # Use GPT-4 for all model calls.
-MODEL_NAME = "gpt-4"
+MODEL_NAME = "gpt-4o"
 
 # Backoff strategies for API calls.
 backoff_classification = {
@@ -62,13 +62,12 @@ def get_attributes(reviews_df):
     # Limit to 500 reviews per product (grouped by 'asin')
     reviews_df = reviews_df.groupby("asin").head(500)
 
-    prompt_template = PromptTemplate.from_template(
+    prompt_template = ChatPromptTemplate.from_template(
         """
         Here is a product review of a bluetooth speaker: {review}
 
         Extract the key product features mentioned in the review.
-        For example, if the review mentions aspects related to audio, always return "sound quality"
-        (do not return both "sound" and "sound quality").
+        For example, if the review mentions both "sound" and "sound quality", return only one of them since they mean the same thing. Be intelligent
         Only return product attributes that are explicitly mentioned, as nouns.
         Each attribute must be at most two words and duplicates should be avoided.
         Limit your answer to a maximum of 5 attributes.
@@ -107,7 +106,7 @@ def score_reviews(reviews_df, attributes):
     Expected output per review: "feature:score, feature:score, ..."
     """
     op_structure = "feature:score"
-    prompt_template = PromptTemplate.from_template(
+    prompt_template = ChatPromptTemplate.from_template(
         f"""
         Here is a product review: {{review}}
         Determine how the reviewer rates this product in relation to these features:
@@ -164,7 +163,7 @@ def summarize_reviews(product):
 
     # --- Mapping Step ---
     # Define the mapping prompt (expects {page_content}).
-    map_prompt = PromptTemplate.from_template(
+    map_prompt = ChatPromptTemplate.from_template(
         "You are provided with a single product review in JSON format:\n{page_content}\nGenerate a concise summary of this review. Summary:"
     )
     # Create the mapping chain using the pipe operator.
@@ -177,7 +176,7 @@ def summarize_reviews(product):
 
     # --- Reducing Step ---
     # Define the reducing prompt (expects {summaries}).
-    combine_prompt = PromptTemplate.from_template(
+    combine_prompt = ChatPromptTemplate.from_template(
         "You are provided with several summaries:\n{summaries}\nCombine these into one final, concise summary. Final Summary:"
     )
     reduce_chain = combine_prompt | model
