@@ -34,7 +34,7 @@ backoff_attribute = {
 def get_df():
     """Loads the raw reviews CSV. Adjust the path as needed."""
     df = pd.read_csv("data/combined_speaker_reviews.csv")
-    return df[:500]
+    return df[:300]
 
 
 @retry(wait = backoff_classification["wait"], stop = backoff_classification["stop"], reraise = True)

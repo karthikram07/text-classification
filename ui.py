@@ -118,50 +118,56 @@ def generate_radar_chart(df, selected_product):
 # ------------------------------------------------------------------------------
 
 def main():
-    st.set_page_config(page_title = "Amazon Earbud Reviews Classification", layout = "wide")
-    st.title("Amazon Earbud Reviews Classification")
+    st.set_page_config(page_title = "Amazon Speaker Reviews Classification", layout = "wide")
+    st.title("Amazon Speaker Reviews Classification")
+    st.session_state.classification_complete = False
 
     # Buttons to run or load the classifier.
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Run classifier and generate radar chart & summary"):
             with st.spinner("Running classifier..."):
+                st.session_state.classification_complete = False
                 classify_reviews()
             st.success("Classification complete!")
+            st.session_state.classification_complete = True
     with col2:
         if st.button("Load persisted data and generate radar chart & summary"):
             st.info("Using persisted classified reviews.")
+            st.session_state.classification_complete = True
 
-    df = load_classified_reviews()
-    if df is None or df.empty:
-        st.error("classified_reviews.csv not found or empty. Please run the classifier first.")
-        return
 
-    st.subheader("Classified Reviews Data")
-    st.dataframe(df, use_container_width = True)
+    if st.session_state.get("classification_complete", False):
+        df = load_classified_reviews()
+        if df is None or df.empty:
+            st.error("classified_reviews.csv not found or empty. Please run the classifier first.")
+            return
 
-    st.subheader("Review Scores")
-    if "productName" in df.columns:
-        unique_products = sorted(df["productName"].unique())
-    else:
-        st.error("Column 'productName' not found in classified reviews data.")
-        return
-    # Create a selectbox with an "All Products" option.
-    options = ["All Products"] + unique_products
-    selected_product = st.selectbox("Select a product to view its radar chart", options = options)
-    fig = generate_radar_chart(df, selected_product)
-    st.plotly_chart(fig, use_container_width = True)
+        st.subheader("Classified Reviews Data")
+        st.dataframe(df, use_container_width = True)
 
-    st.subheader("Generate Product Review Summary")
-    if unique_products:
-        selected_summary_product = st.selectbox("Select a product for summary", options = unique_products)
-        if selected_summary_product:
-            with st.spinner("Generating summary..."):
-                summary = summarize_reviews(selected_summary_product)
-            st.markdown("### Summary")
-            st.write(summary)
-    else:
-        st.warning("No products available for summary.")
+        st.subheader("Review Scores")
+        if "productName" in df.columns:
+            unique_products = sorted(df["productName"].unique())
+        else:
+            st.error("Column 'productName' not found in classified reviews data.")
+            return
+        # Create a selectbox with an "All Products" option.
+        options = ["All Products"] + unique_products
+        selected_product = st.selectbox("Select a product to view its radar chart", options = options)
+        fig = generate_radar_chart(df, selected_product)
+        st.plotly_chart(fig, use_container_width = True)
+
+        st.subheader("Generate Product Review Summary")
+        if unique_products:
+            selected_summary_product = st.selectbox("Select a product for summary", options = unique_products)
+            if selected_summary_product:
+                with st.spinner("Generating summary..."):
+                    summary = summarize_reviews(selected_summary_product)
+                st.markdown("### Summary")
+                st.write(summary)
+        else:
+            st.warning("No products available for summary.")
 
 
 if __name__ == "__main__":
