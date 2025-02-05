@@ -5,8 +5,8 @@ from collections import Counter
 import streamlit as st
 from tenacity import retry, stop_after_attempt, wait_random_exponential, wait_random
 
-# LangChain imports
-from langchain.prompts import PromptTemplate, ChatPromptTemplate
+# LangChain imports (using PromptTemplate only)
+from langchain.prompts import PromptTemplate
 from langchain.text_splitter import RecursiveJsonSplitter
 from langchain_openai import ChatOpenAI
 from langchain.schema import Document
@@ -62,7 +62,7 @@ def get_attributes(reviews_df):
     # Limit to 500 reviews per product (grouped by 'asin')
     reviews_df = reviews_df.groupby("asin").head(500)
 
-    prompt_template = ChatPromptTemplate.from_template(
+    prompt_template = PromptTemplate.from_template(
         """
         Here is a product review of a bluetooth speaker: {review}
 
@@ -107,7 +107,7 @@ def score_reviews(reviews_df, attributes):
     Expected output per review: "feature:score, feature:score, ..."
     """
     op_structure = "feature:score"
-    prompt_template = ChatPromptTemplate.from_template(
+    prompt_template = PromptTemplate.from_template(
         f"""
         Here is a product review: {{review}}
         Determine how the reviewer rates this product in relation to these features:
