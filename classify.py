@@ -9,7 +9,6 @@ from tenacity import retry, stop_after_attempt, wait_random_exponential, wait_ra
 from langchain.prompts import PromptTemplate
 from langchain_text_splitters import RecursiveJsonSplitter
 from langchain_openai import ChatOpenAI
-from langchain.schema import Document
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 import plotly.graph_objects as go
