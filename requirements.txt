@@ -10,3 +10,4 @@ langchain_core
 langchain_openai
 tiktoken
 plotly
+pydantic<2
