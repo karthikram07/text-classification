@@ -15,66 +15,94 @@
 import numpy as np
 import pandas as pd
 import openai
+import re
+from collections import Counter
 from langchain_core.runnables import RunnablePassthrough
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 import streamlit as st
 from langchain.chains.combine_documents.stuff import StuffDocumentsChain
-from langchain.chains.llm import LLMChain
-from langchain.prompts import PromptTemplate
-from langchain_community.document_loaders import WebBaseLoader
+from langchain.chains import MapReduceDocumentsChain
+from langchain.chains import ReduceDocumentsChain
+from langchain_text_splitters import CharacterTextSplitter
+
+from langchain.chains import LLMChain
+from langchain.prompts import PromptTemplate, ChatPromptTemplate
 from langchain.chains.summarize import load_summarize_chain
-from langchain.text_splitter import CharacterTextSplitter
+from langchain.text_splitter import TokenTextSplitter
+
 from langchain.docstore.document import Document
 from tenacity import (
     retry,
     stop_after_attempt,
     wait_random_exponential,
-    wait_fixed
+    wait_fixed,
+    wait_random
 )
+from langchain_text_splitters import RecursiveJsonSplitter
+
 
 
 openai.api_key = st.secrets["OPENAI_API_KEY"]
-loader = WebBaseLoader("https://lilianweng.github.io/posts/2023-06-23-agent/")
 
-def get_brand_index_map():
-    brand_index_map = {
-        'sony': 0,
-        'boat': 1,
-        'samsung': 2,
-        'bose': 3,
-        'oneplus': 4
+backoff_times = {
+    "classification" :{
+        "wait": wait_random_exponential(0.15, 0.35),
+        "stop": stop_after_attempt(20)
+    },
+    "attribute_extraction" :{
+        "wait": wait_random(0.15, 0.20),
+        "stop": stop_after_attempt(5)
     }
-    return brand_index_map
+}
 
 
-def get_file_paths():
-    file_paths = ['data/B09PC695Q9.csv', 'data/B09N3XMZ5F.csv', 'data/B09CKF166Y.csv', 'data/B08C4KWM9T.csv', 'data/B0BYJ6ZMTS.csv']
-    return file_paths
 
 
 def get_df():
     speaker_reviews_df = pd.read_csv('data/combined_speaker_reviews.csv')
     return speaker_reviews_df
 
+@retry(wait=backoff_times["classification"]["wait"], stop=stop_after_attempt(5),reraise=True)
+def run_classification_with_backoff(chain, **kwargs):
+    return chain.batch(**kwargs)
+
+@retry(wait=backoff_times["attribute_extraction"]["wait"], stop=stop_after_attempt(5),reraise=True)
+def run_attribute_extraction_with_backoff(chain, **kwargs):
+    return chain.batch(**kwargs)
+
+def filter_special_characters(attribute):
+    return re.sub(r'[^a-zA-Z\s]', '', attribute).strip()
     
 def get_attributes(reviews_df):
-    return ["Build Quality", "Price", "Comfort", "Design", "Battery life", "Sound Quality"]
-
-    op_structure = "feature1, feature2"
+    # pick only 500 reviews per asin
+    reviews_df = reviews_df.groupby('asin').head(500)
     prompt = ChatPromptTemplate.from_template(
                             """
-                            Here is a product review: {review}
-                            Extract the features that the reviewer mentions in relation to the product. 
-                            For example: sound quality, price.
-                            Only provide features that are product attributes and are mentioned in the review. Do not return adjectives or other descriptive verbs. Use the following format. No additional commentary.
-                            Make sure to return only features which are present in atleast 5 different reviews.
-                            %s
-                            """ % op_structure
+                            Here is a product review of a bluetooth speaker: {review}
+                            
+                            Extract the features that the reviewer mentions that describes the product.
+                             
+                            For example: 'sound quality', 'price'.
+                            
+                            Only provide product features that are mentioned in the review. Do not return adjectives or other descriptive verbs. Do not return entire sentences. Return only nouns.
+                            
+                            Do not return user emotions such as 'love it', 'hate it', 'very useful' etc.
+                            
+                            Make sure that each feature is at most 2 words long. Don't return features longer than this.
+                            
+                            Make sure that the features returned make sense as an attribute of a bluetooth speaker. For example, 'kitchen use' is not a valid feature. 'ease of connection' is not a valid feature. 'sound quality' is a valid feature. 'connectivity' is a valid feature.
+                           
+                            Do not return duplicates. For Eg: if the review mentions a feature in relation to multiple scenarios, return just the characteristic. If the speaker talks about connectivity with TV and phone,  do not return both of them. Just return "connectivity". 
+                           
+                            Disregard the other products in all reviews. 
+                            
+                            Return maximum 5 features per review. If there are more than 5 features, return the top 5 features.
+                            
+                            """
                         )
     output_parser = StrOutputParser()
-    model = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.5, max_tokens=60)
+    model = ChatOpenAI(model="gpt-3.5-turbo", temperature=0, max_tokens=45, top_p=1)
     chain = (
             {"review": RunnablePassthrough()} 
             | prompt
@@ -82,18 +110,30 @@ def get_attributes(reviews_df):
             | output_parser
     )
     review_texts = reviews_df['reviewText'].to_list()
+    review_texts = [str(text) for text in review_texts]
     # restrict all reviews to 12000 characters
     review_texts = [text[:12000] for text in review_texts]
-    res = chain.batch(review_texts)
-    #  return unique attributes
-    res = list(set(res))
-    return res
-    
-@retry(wait=wait_random_exponential(0.15, 0.75), stop=stop_after_attempt(20),reraise=True)
-def run_with_backoff(chain, **kwargs):
-    return chain.batch(**kwargs)
+    attributes = run_attribute_extraction_with_backoff(chain, inputs = review_texts, config={"max_concurrency":10})
+    print('attributes:', attributes)
 
-def score_reviews(reviews_df):
+    #  return unique attributes
+    attributes = list(set(attributes))
+    list_of_attr = []
+    for attr in attributes:
+        attr = filter_special_characters(attr)
+        attrs = attr.split('\n')
+        list_of_attr.extend([at.strip().lower() for at in attrs])
+
+    attribute_counts = Counter(list_of_attr)
+    top_5_attributes = [attr for attr, _ in attribute_counts.most_common(5)]
+    print(f"Attributes generated: {list_of_attr}")
+    print("\n\n")
+    print(top_5_attributes)
+
+    return top_5_attributes
+    
+
+def score_reviews(reviews_df, attributes):
     op_structure = "feature:score"
     prompt = ChatPromptTemplate.from_template(
                             """
@@ -102,10 +142,10 @@ def score_reviews(reviews_df):
                             %s
                             Only provide a score (between 0 to 3). If the feature is not mentioned, provide a score of 0. Use the following format. No additional commentary.
                             %s
-                            """ % (', '.join(get_attributes(reviews_df)), op_structure)
+                            """ % (', '.join(attributes), op_structure)
                         )
     output_parser = StrOutputParser()
-    model = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.5, max_tokens=30)
+    model = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.5, max_tokens=45)
     chain = (
             {"review": RunnablePassthrough()} 
             | prompt
@@ -116,49 +156,141 @@ def score_reviews(reviews_df):
     # make sure all reviews are strings
     review_texts = [str(text) for text in review_texts]
     review_texts = [text[:12000] for text in review_texts]
-    res = run_with_backoff(chain, inputs = review_texts, config={"max_concurrency":5})
+    res = run_classification_with_backoff(chain, inputs = review_texts, config={"max_concurrency":10})
     for i, row in reviews_df.iterrows():
         reviews_df.at[i, 'scores'] = res[i]
 
     return reviews_df
-    
-
-def summarize_reviews(brand):
-    file_paths = get_file_paths()
-    brand_index_map = get_brand_index_map()
-
-    brand_file = file_paths[brand_index_map[brand]]
-    brand_df = pd.read_csv(brand_file)
-    brand_df = brand_df.head(100)
-    # extract only reviews
-    reviews = brand_df['text'].to_list()
-
-    prompt_template = """Write a concise summary of the following product reviews for the earbuds:
 
 
-                        {text}
+def generate_summary_input(df):
+    each_label_text = []
+    for index, row in df.iterrows():
+        # each_label_text += f"review: {row['reviewText']}, scores: {row['scores']}\n"
+        each_label_text.append({
+            "review": row['reviewText'],
+            "scores": row['scores']
+        })
+
+    return each_label_text
+
+@retry(wait=wait_random_exponential(0.25, 1), stop=stop_after_attempt(5),reraise=True)
+def run_summarization_with_backoff(chain, **kwargs):
+    return chain.run(**kwargs)
 
 
-                        CONSCISE SUMMARY:"""
+def _summarize_reviews(product):
+    op_df = pd.read_csv('classified_reviews.csv')
+    op_df = op_df[op_df['productName'] == product]
+    data = generate_summary_input(op_df)
+    splitter = RecursiveJsonSplitter()
+    docs = splitter.create_documents(texts = data)
 
-    prompt = PromptTemplate(template=prompt_template, input_variables=["text"])
+    model = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
 
-    llm = ChatOpenAI(temperature=0, model_name="gpt-3.5-turbo-16k")
-    docs = [Document(page_content=t) for t in reviews]
-    chain = load_summarize_chain(llm, chain_type='stuff', prompt=prompt)
-    return chain.run(docs)
+    prompt_template = """
+                    You are provided with a dataset containing amazon product reviews for bluetooth speakers.
+                    The format of the review is:
+                    'review':'review_text', 'scores': 'attribute1': 5, 'attribute2': 4, 'attribute3': 3, 'attribute4': 2, 'attribute5': 1
+                    Each review is labeled with a score out of 5 for attributes such as Build Quality, Price, Comfort, Design, Battery life, Sound Quality etc.
+                    Below is the review:
+                    {docs}
+                    Your task is to generate a concise summary of the reviews
+                    summarise reviews from multiple customers and provide a concise summary of the reviews
+                    Ensure that the generated summaries are coherent, relevant, and accurately represent the content of the original reviews.
+                    CONCISE SUMMARY:
+                    """
+    prompt = PromptTemplate.from_template(prompt_template)
 
+    refine_template = (
+        "Your job is to produce a final summary\n"
+        "We have provided an existing summary up to a certain point: {existing_answer}\n"
+        "We have the opportunity to refine the existing summary"
+        "with some more context below.\n"
+        "------------\n"
+        "{docs}\n"
+        "------------\n"
+        "Given the new context, refine the original summary"
+    )
+    refine_prompt = PromptTemplate.from_template(refine_template)
+    chain = load_summarize_chain(
+        llm=model,
+        chain_type="refine",
+        question_prompt=prompt,
+        refine_prompt=refine_prompt,
+        input_key="docs",
+        output_key="output_text",
+        document_variable_name="docs",
+    )
+    result = chain({"docs": docs}, return_only_outputs=True)
+    return result['output_text']
 
+def summarize_reviews(product):
+    op_df = pd.read_csv('classified_reviews.csv')
+    op_df = op_df[op_df['productName'] == product]
+    data = generate_summary_input(op_df)
+    splitter = RecursiveJsonSplitter()
+    docs = splitter.create_documents(texts = data)
 
+    model = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
 
+    map_prompt_template = """You are provided with a dataset containing amazon product reviews for bluetooth speakers.
+                    The format of the review is:
+                    "{'review':'review_text', 'scores': {'attribute1': 5, 'attribute2': 4, 'attribute3': 3, 'attribute4': 2, 'attribute5': 1}}"
+                    Each review is labeled with a score out of 5 for attributes such as Build Quality, Price, Comfort, Design, Battery life, Sound Quality etc.
+                    Below is the review:
+                    {docs}
+                    Your task is to generate a concise summary of the reviews
+                    Ensure that the generated summaries are coherent, relevant, and accurately represent the content of the original reviews.
+                    Limit the summary to a maximum of 20000 characters
+                    Summary:"""
+    map_prompt = PromptTemplate.from_template(map_prompt_template)
+    map_chain = LLMChain(llm=model, prompt = map_prompt)
 
+    reduce_template = """The following is set of summaries:
+    {docs}
+    Take these and distill it into a final, consolidated summary.
+    Concise summary:"""
+    reduce_prompt = PromptTemplate.from_template(reduce_template)
+    reduce_model = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
 
+    reduce_chain = LLMChain(llm = reduce_model  , prompt = reduce_prompt)
 
+    # Takes a list of documents, combines them into a single string, and passes this to an LLMChain
+    # document_prompt = PromptTemplate.from_template(
+    #     input_variables = ["page_content"],
+    #     template = "{page_content}"
+    # )
 
+    combine_documents_chain = StuffDocumentsChain(
+        llm_chain = reduce_chain, document_variable_name = "docs"
+    )
+
+    # Combines and iteratively reduces the mapped documents
+    reduce_documents_chain = ReduceDocumentsChain(
+        combine_documents_chain = combine_documents_chain,
+    )
+
+    map_reduce_chain = MapReduceDocumentsChain(
+        # Map chain
+        llm_chain = map_chain,
+        # Reduce chain
+        reduce_documents_chain = reduce_chain,
+        # The variable name in the llm_chain to put the documents in
+        document_variable_name = "docs",
+    )
+
+    # text_splitter = TokenTextSplitter(chunk_size=4000)
+    # split_docs = text_splitter.split_documents(Document(page_content=data), max_concurrency = 10)
+
+    result = map_reduce_chain.run(docs)
+    print('result:', result)
+    return result['output_text']
 
 def classify_reviews():
     reviews_df = get_df()
-    scores = score_reviews(reviews_df)
+    attributes = get_attributes(reviews_df)
+    scores = score_reviews(reviews_df, attributes)
 
     scores.to_csv('classified_reviews.csv', index=False)
 

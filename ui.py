@@ -27,9 +27,12 @@ class OpenAITextClassifier():
         self.is_classified = True
         self.generate_radar_chart()
 
-    def get_summaries(self, brand):
-        docs = summarize_reviews(brand)
+    def get_summaries(self, product):
+        docs = summarize_reviews(product)
         st.write(docs)
+
+    def get_df(self):
+        return pd.read_csv('classified_reviews.csv')
 
 
     def run(self):
@@ -63,9 +66,11 @@ class OpenAITextClassifier():
         
 
         st.write("# Generate product review summary!")
+        classified_df = self.get_df()
+        unique_products = classified_df['productName'].unique()
         option = st.selectbox(
                 label='Please select the brand',
-                options=('sony', 'boat', 'samsung', 'bose', 'oneplus'),
+                options=unique_products.tolist(),
                 index=None)
         if option:
             self.get_summaries(option)
