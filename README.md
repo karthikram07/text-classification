@@ -1,7 +1,7 @@
 # Welcome to streamlit
 
 
-Edit [ui.py](./ui.py) to customize this app to your heart's desire. ❤️
+Edit [classify.py](./classify.py) to customize this app to your heart's desire. ❤️
 
 Check it out on [Streamlit Community Cloud](https://st-ui-app.streamlit.app/)
 
