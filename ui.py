@@ -1,83 +1,168 @@
 import pandas as pd
 import streamlit as st
-from streamlit.logger import get_logger
+import plotly.graph_objects as go
 from classify import classify_reviews, summarize_reviews
 
 
-class OpenAITextClassifier():
-    def __init__(self):
-        self.is_classified = False
-        self.generate_clicked = False
+# ------------------------------------------------------------------------------
+# Utility functions
+# ------------------------------------------------------------------------------
 
-    def generate_radar_chart(self):
-        self.generate_clicked = True
-        # check if classified_reviews.csv file exists
-        try:
-            op_df = pd.read_csv('classified_reviews.csv')
-            st.dataframe(op_df, use_container_width=True)
-
-            # generate radar chart
-        except FileNotFoundError:
-            st.write("classified_reviews.csv not found. Please run the classifier first")
-            return
-        
-
-    def handle_classification(self):
-        classify_reviews()
-        self.is_classified = True
-        self.generate_radar_chart()
-
-    def get_summaries(self, product):
-        docs = summarize_reviews(product)
-        st.write(docs)
-
-    def get_df(self):
-        return pd.read_csv('classified_reviews.csv')
+@st.cache_data(show_spinner = False)
+def load_classified_reviews():
+    try:
+        df = pd.read_csv("classified_reviews.csv")
+        return df
+    except FileNotFoundError:
+        return None
 
 
-    def run(self):
-        st.set_page_config(
-            page_title="Amazon Earbud reviews classification",
-        )
+def parse_scores(score_str):
+    """Parses a score string into a dictionary of {feature: score}.
+       Also standardizes features like 'sound' and 'sound quality' to 'sound quality'."""
+    score_dict = {}
+    try:
+        parts = score_str.split("\n")
+        for part in parts:
+            if ":" in part:
+                key, value = part.split(":", 1)
+                key = key.strip().lower()
+                # Standardize synonyms.
+                if key in ("sound", "sound quality"):
+                    key = "sound quality"
+                try:
+                    score = float(value.strip())
+                except ValueError:
+                    score = 0
+                # If the key already exists, average the scores.
+                if key in score_dict:
+                    score_dict[key] = (score_dict[key] + score) / 2.0
+                else:
+                    score_dict[key] = score
+    except Exception:
+        pass
+    return score_dict
 
-        st.write("# Amazon Earbud reviews classification! 👋")
 
-        print('self.is_classified', self.is_classified)
-        print('self.generate_clicked', self.generate_clicked)
+def aggregate_scores(df):
+    """
+    Aggregates scores per product.
+
+    Returns:
+      - averaged: a dictionary mapping product -> {feature: average_score}
+      - all_attributes: a set of all features encountered.
+    """
+    product_scores = {}
+    product_counts = {}
+    all_attributes = set()
+    for _, row in df.iterrows():
+        product = row.get("productName")
+        if not product:
+            continue
+        score_str = row.get("scores", "")
+        scores = parse_scores(score_str)
+        all_attributes.update(scores.keys())
+        if product not in product_scores:
+            product_scores[product] = {}
+            product_counts[product] = 0
+        for attr, val in scores.items():
+            product_scores[product][attr] = product_scores[product].get(attr, 0) + val
+        product_counts[product] += 1
+    averaged = {}
+    for product, score_dict in product_scores.items():
+        avg_dict = {}
+        for attr in all_attributes:
+            avg_dict[attr] = score_dict.get(attr, 0) / product_counts[product]
+        averaged[product] = avg_dict
+    return averaged, all_attributes
 
 
-        if not self.is_classified and not self.generate_clicked:
-            st.button(
-                label="Generate radar chart and summary using persisted data",
-                on_click=self.generate_radar_chart,
-                type="primary"
-            )
+def generate_radar_chart(df, selected_product):
+    """
+    Generates a radar chart based on review scores.
 
-            st.button(
-                label="Run classifier and generate radar chart and summary",
-                on_click=self.handle_classification
-            )
+    If selected_product is "All Products", then one trace per product is plotted.
+    Otherwise, only the selected product's averaged scores are plotted.
+    """
+    averaged, all_attributes = aggregate_scores(df)
+    # Sort attributes for consistent ordering.
+    categories = sorted(list(all_attributes))
+    fig = go.Figure()
+    if selected_product == "All Products":
+        # Plot each product on the same radar chart.
+        for product, scores in averaged.items():
+            values = [scores.get(attr, 0) for attr in categories]
+            # Close the loop
+            values += [values[0]]
+            theta = categories + [categories[0]]
+            fig.add_trace(go.Scatterpolar(r = values, theta = theta, fill = 'toself', name = product))
+    else:
+        # Plot only the selected product.
+        scores = averaged.get(selected_product, {})
+        values = [scores.get(attr, 0) for attr in categories]
+        values += [values[0]]
+        theta = categories + [categories[0]]
+        fig.add_trace(go.Scatterpolar(r = values, theta = theta, fill = 'toself', name = selected_product))
+    fig.update_layout(
+        polar = dict(
+            radialaxis = dict(visible = True, range = [0, 3])
+        ),
+        showlegend = True,
+        margin = dict(l = 20, r = 20, t = 40, b = 20)
+    )
+    return fig
 
-        elif self.is_classified:
-            st.write('Classification complete. Generating radar chart')
 
-        elif not self.is_classified and self.generate_clicked:
-            st.write('Generating radar chart and summary')
-        
+# ------------------------------------------------------------------------------
+# Main UI
+# ------------------------------------------------------------------------------
 
-        st.write("# Generate product review summary!")
-        classified_df = self.get_df()
-        unique_products = classified_df['productName'].unique()
-        option = st.selectbox(
-                label='Please select the brand',
-                options=unique_products.tolist(),
-                index=None)
-        if option:
-            self.get_summaries(option)
-        
+def main():
+    st.set_page_config(page_title = "Amazon Earbud Reviews Classification", layout = "wide")
+    st.title("Amazon Earbud Reviews Classification")
 
+    # Buttons to run or load the classifier.
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Run classifier and generate radar chart & summary"):
+            with st.spinner("Running classifier..."):
+                classify_reviews()
+            st.success("Classification complete!")
+    with col2:
+        if st.button("Load persisted data and generate radar chart & summary"):
+            st.info("Using persisted classified reviews.")
+
+    df = load_classified_reviews()
+    if df is None or df.empty:
+        st.error("classified_reviews.csv not found or empty. Please run the classifier first.")
+        return
+
+    st.subheader("Classified Reviews Data")
+    st.dataframe(df, use_container_width = True)
+
+    st.subheader("Review Scores")
+    if "productName" in df.columns:
+        unique_products = sorted(df["productName"].unique())
+    else:
+        st.error("Column 'productName' not found in classified reviews data.")
+        return
+    # Create a selectbox with an "All Products" option.
+    options = ["All Products"] + unique_products
+    selected_product = st.selectbox("Select a product to view its radar chart", options = options)
+    fig = generate_radar_chart(df, selected_product)
+    st.plotly_chart(fig, use_container_width = True)
+
+    st.subheader("Generate Product Review Summary")
+    if unique_products:
+        selected_summary_product = st.selectbox("Select a product for summary", options = unique_products)
+        if selected_summary_product:
+            with st.spinner("Generating summary..."):
+                summary = summarize_reviews(selected_summary_product)
+            st.markdown("### Summary")
+            st.write(summary)
+    else:
+        st.warning("No products available for summary.")
 
 
 if __name__ == "__main__":
-    classifier = OpenAITextClassifier()
-    classifier.run()
+    main()

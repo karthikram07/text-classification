@@ -9,3 +9,4 @@ langchain
 langchain_core
 langchain_openai
 tiktoken
+plotly
