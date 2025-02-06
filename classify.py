@@ -183,7 +183,7 @@ def summarize_reviews(product):
     summaries_str = "\n".join(mapped_outputs)
     final_summary = reduce_chain.invoke({"summaries": summaries_str})
 
-    return final_summary
+    return final_summary.content
 
 
 def classify_reviews():
