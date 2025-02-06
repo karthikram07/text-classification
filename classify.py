@@ -3,7 +3,7 @@ import pandas as pd
 import openai
 from collections import Counter
 import streamlit as st
-from tenacity import retry, stop_after_attempt, wait_random_exponential, wait_random
+from tenacity import retry, stop_after_attempt, wait_random_exponential, wait_random, retry_if_exception_type
 
 # LangChain imports (using ChatPromptTemplate only)
 from langchain_core.prompts import ChatPromptTemplate
@@ -17,7 +17,7 @@ import plotly.graph_objects as go
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 # Use GPT-4 for all model calls.
-MODEL_NAME = "gpt-4o"
+MODEL_NAME = "gpt-3.5-turbo"
 
 # Backoff strategies for API calls.
 backoff_classification = {
@@ -34,7 +34,7 @@ backoff_attribute = {
 def get_df():
     """Loads the raw reviews CSV. Adjust the path as needed."""
     df = pd.read_csv("data/combined_speaker_reviews.csv")
-    return df[:300]
+    return df[:50]
 
 
 @retry(wait = backoff_classification["wait"], stop = backoff_classification["stop"], reraise = True)
@@ -82,7 +82,7 @@ def get_attributes(reviews_df):
     # Truncate reviews to 1000 characters to speed up processing.
     review_texts = [text[:1000] for text in review_texts]
 
-    attributes = run_attribute_extraction_with_backoff(chain, inputs = review_texts, config = {"max_concurrency": 20})
+    attributes = run_attribute_extraction_with_backoff(chain, inputs = review_texts, config = {"max_concurrency": 10})
 
     all_attrs = []
     for attr in attributes:
